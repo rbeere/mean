@@ -11,9 +11,9 @@ var ApplicationConfiguration = function () {
         'ui.utils'
       ];
     // Add a new vertical module
-    var registerModule = function (moduleName) {
+    var registerModule = function (moduleName, dependencies) {
       // Create angular module
-      angular.module(moduleName, []);
+      angular.module(moduleName, dependencies || []);
       // Add the module to the AngularJS configuration file
       angular.module(applicationModuleName).requires.push(moduleName);
     };
@@ -91,11 +91,11 @@ angular.module('articles').controller('ArticlesController', [
         });
       article.$save(function (response) {
         $location.path('articles/' + response._id);
+        $scope.title = '';
+        $scope.content = '';
       }, function (errorResponse) {
         $scope.error = errorResponse.data.message;
       });
-      this.title = '';
-      this.content = '';
     };
     $scope.remove = function (article) {
       if (article) {
@@ -234,7 +234,7 @@ angular.module('core').service('Menus', [function () {
       delete this.menus[menuId];
     };
     // Add menu item object
-    this.addMenuItem = function (menuId, menuItemTitle, menuItemURL, menuItemType, menuItemUIRoute, isPublic, roles) {
+    this.addMenuItem = function (menuId, menuItemTitle, menuItemURL, menuItemType, menuItemUIRoute, isPublic, roles, position) {
       // Validate that the menu exists
       this.validateMenuExistance(menuId);
       // Push new menu item
@@ -244,8 +244,9 @@ angular.module('core').service('Menus', [function () {
         menuItemType: menuItemType || 'item',
         menuItemClass: menuItemType,
         uiRoute: menuItemUIRoute || '/' + menuItemURL,
-        isPublic: isPublic || this.menus[menuId].isPublic,
+        isPublic: isPublic === null || typeof isPublic === 'undefined' ? this.menus[menuId].isPublic : isPublic,
         roles: roles || this.defaultRoles,
+        position: position || 0,
         items: [],
         shouldRender: shouldRender
       });
@@ -253,7 +254,7 @@ angular.module('core').service('Menus', [function () {
       return this.menus[menuId];
     };
     // Add submenu item object
-    this.addSubMenuItem = function (menuId, rootMenuItemURL, menuItemTitle, menuItemURL, menuItemUIRoute, isPublic, roles) {
+    this.addSubMenuItem = function (menuId, rootMenuItemURL, menuItemTitle, menuItemURL, menuItemUIRoute, isPublic, roles, position) {
       // Validate that the menu exists
       this.validateMenuExistance(menuId);
       // Search for menu item
@@ -264,8 +265,9 @@ angular.module('core').service('Menus', [function () {
             title: menuItemTitle,
             link: menuItemURL,
             uiRoute: menuItemUIRoute || '/' + menuItemURL,
-            isPublic: isPublic || this.menus[menuId].isPublic,
+            isPublic: isPublic === null || typeof isPublic === 'undefined' ? this.menus[menuId].items[itemIndex].isPublic : isPublic,
             roles: roles || this.defaultRoles,
+            position: position || 0,
             shouldRender: shouldRender
           });
         }
@@ -350,10 +352,22 @@ angular.module('users').config([
       templateUrl: 'modules/users/views/settings/social-accounts.client.view.html'
     }).state('signup', {
       url: '/signup',
-      templateUrl: 'modules/users/views/signup.client.view.html'
+      templateUrl: 'modules/users/views/authentication/signup.client.view.html'
     }).state('signin', {
       url: '/signin',
-      templateUrl: 'modules/users/views/signin.client.view.html'
+      templateUrl: 'modules/users/views/authentication/signin.client.view.html'
+    }).state('forgot', {
+      url: '/password/forgot',
+      templateUrl: 'modules/users/views/password/forgot-password.client.view.html'
+    }).state('reset-invlaid', {
+      url: '/password/reset/invalid',
+      templateUrl: 'modules/users/views/password/reset-password-invalid.client.view.html'
+    }).state('reset-success', {
+      url: '/password/reset/success',
+      templateUrl: 'modules/users/views/password/reset-password-success.client.view.html'
+    }).state('reset', {
+      url: '/password/reset/:token',
+      templateUrl: 'modules/users/views/password/reset-password.client.view.html'
     });
   }
 ]);'use strict';
@@ -364,14 +378,14 @@ angular.module('users').controller('AuthenticationController', [
   'Authentication',
   function ($scope, $http, $location, Authentication) {
     $scope.authentication = Authentication;
-    //If user is signed in then redirect back home
+    // If user is signed in then redirect back home
     if ($scope.authentication.user)
       $location.path('/');
     $scope.signup = function () {
       $http.post('/auth/signup', $scope.credentials).success(function (response) {
-        //If successful we assign the response to the global user model
+        // If successful we assign the response to the global user model
         $scope.authentication.user = response;
-        //And redirect to the index page
+        // And redirect to the index page
         $location.path('/');
       }).error(function (response) {
         $scope.error = response.message;
@@ -379,10 +393,50 @@ angular.module('users').controller('AuthenticationController', [
     };
     $scope.signin = function () {
       $http.post('/auth/signin', $scope.credentials).success(function (response) {
-        //If successful we assign the response to the global user model
+        // If successful we assign the response to the global user model
         $scope.authentication.user = response;
-        //And redirect to the index page
+        // And redirect to the index page
         $location.path('/');
+      }).error(function (response) {
+        $scope.error = response.message;
+      });
+    };
+  }
+]);'use strict';
+angular.module('users').controller('PasswordController', [
+  '$scope',
+  '$stateParams',
+  '$http',
+  '$location',
+  'Authentication',
+  function ($scope, $stateParams, $http, $location, Authentication) {
+    $scope.authentication = Authentication;
+    //If user is signed in then redirect back home
+    if ($scope.authentication.user)
+      $location.path('/');
+    // Submit forgotten password account id
+    $scope.askForPasswordReset = function () {
+      $scope.success = $scope.error = null;
+      $http.post('/auth/forgot', $scope.credentials).success(function (response) {
+        // Show user success message and clear form
+        $scope.credentials = null;
+        $scope.success = response.message;
+      }).error(function (response) {
+        // Show user error message and clear form
+        $scope.credentials = null;
+        $scope.error = response.message;
+      });
+    };
+    // Change user password
+    $scope.resetUserPassword = function () {
+      $scope.success = $scope.error = null;
+      $http.post('/auth/reset/' + $stateParams.token, $scope.passwordDetails).success(function (response) {
+        // If successful show success message and clear form
+        $scope.passwordDetails = null;
+        // Attach user profile
+        Authentication.user = response;
+        // And redirect to the index page
+        $location.path('/password/reset/success');
       }).error(function (response) {
         $scope.error = response.message;
       });
@@ -423,15 +477,19 @@ angular.module('users').controller('SettingsController', [
       });
     };
     // Update a user profile
-    $scope.updateUserProfile = function () {
-      $scope.success = $scope.error = null;
-      var user = new Users($scope.user);
-      user.$update(function (response) {
-        $scope.success = true;
-        Authentication.user = response;
-      }, function (response) {
-        $scope.error = response.data.message;
-      });
+    $scope.updateUserProfile = function (isValid) {
+      if (isValid) {
+        $scope.success = $scope.error = null;
+        var user = new Users($scope.user);
+        user.$update(function (response) {
+          $scope.success = true;
+          Authentication.user = response;
+        }, function (response) {
+          $scope.error = response.data.message;
+        });
+      } else {
+        $scope.submitted = true;
+      }
     };
     // Change user password
     $scope.changeUserPassword = function () {
